@@ -122,7 +122,7 @@ void slamThread(char** argv, const std::string& path) {
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "Mono");
+    ros::init(argc, argv, "MonoBag");
     ros::start();
 
     if(argc != 3)

@@ -91,7 +91,7 @@ void slamThread(char** argv, const std::string& path) {
     out_file[str_size - 1] = 'e';
     out_file.append("reo_");
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
-    ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::MONOCULAR,false);
+    ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::STEREO,false);
 
     ImageGrabber igb(&SLAM);
 
@@ -147,7 +147,7 @@ void slamThread(char** argv, const std::string& path) {
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "Mono");
+    ros::init(argc, argv, "StereoBag");
     ros::start();
 
     if(argc != 3)
