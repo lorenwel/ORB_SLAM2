@@ -40,18 +40,21 @@ endif()
 
 find_package(Eigen3 3.1.0 REQUIRED)
 find_package(Pangolin REQUIRED)
+find_package(Boost REQUIRED COMPONENTS system)
 
 include_directories(
 ${PROJECT_SOURCE_DIR}
 ${PROJECT_SOURCE_DIR}/../../../
 ${PROJECT_SOURCE_DIR}/../../../include
 ${Pangolin_INCLUDE_DIRS}
+${Boost_INCLUDE_DIRS}
 )
 
 set(LIBS 
 ${OpenCV_LIBS} 
 ${EIGEN3_LIBS}
 ${Pangolin_LIBRARIES}
+${Boost_LIBRARIES}
 ${PROJECT_SOURCE_DIR}/../../../Thirdparty/DBoW2/lib/libDBoW2.so
 ${PROJECT_SOURCE_DIR}/../../../Thirdparty/g2o/lib/libg2o.so
 ${PROJECT_SOURCE_DIR}/../../../lib/libORB_SLAM2.so
@@ -62,7 +65,16 @@ rosbuild_add_executable(Mono
 src/ros_mono.cc
 )
 
+# Node for monocular camera with ROSbag
+rosbuild_add_executable(MonoBag
+src/ros_mono_bag.cc
+)
+
 target_link_libraries(Mono
+${LIBS}
+)
+
+target_link_libraries(MonoBag
 ${LIBS}
 )
 
