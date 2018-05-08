@@ -50,6 +50,17 @@ public:
     cv::Mat M1l,M2l,M1r,M2r;
 };
 
+template <typename T>
+class Connector : public message_filters::SimpleFilter<T> {
+
+    typedef ros::MessageEvent<T const> EventType;
+
+    void cb(const EventType& e) {
+        this->signalMessage(e);
+    }
+
+};
+
 std::vector<std::string> file_paths = {
 "/mnt/drive_c/datasets/beth_bags/2018_04_27_strickhof/asphalt_2018-04-27-11-23-40.bag", 
 "/mnt/drive_c/datasets/beth_bags/2018_04_27_strickhof/asphalt_2018-04-27-14-51-19.bag", 
@@ -77,7 +88,15 @@ std::vector<std::string> file_paths = {
 "/mnt/drive_c/datasets/beth_bags/2018_05_04_glattpark/sand_grass_2018-05-04-14-58-43.bag", 
 };
 
-void slamThread(char** argv, const std::string& path) {
+void leftCallback(const sensor_msgs::ImageConstPtr& msgLeft) {
+    
+}
+
+void rightCallback(const sensor_msgs::ImageConstPtr& msgLeft) {
+
+}
+
+void slamThread(char** argv, const std::string& path, const unsigned int& i = 0) {
     // Declare topics for ROSbag. 
     std::vector<std::string> topics= {"/realsense_zr300/ir/image_raw", 
                                       "/realsense_zr300/ir2/image_raw"};
@@ -101,9 +120,9 @@ void slamThread(char** argv, const std::string& path) {
     bag.open(path, rosbag::bagmode::Read);
 
     // Set up synchronizer.
-    ros::NodeHandle nh(path);
-    message_filters::Subscriber<sensor_msgs::Image> left_sub(nh, topics[0], 1);
-    message_filters::Subscriber<sensor_msgs::Image> right_sub(nh, topics[1], 1);
+    ros::NodeHandle nh(std::string("stereo") + std::to_string(i));
+    Connector<sensor_msgs::Image> left_sub{};
+    Connector<sensor_msgs::Image> right_sub{};
     typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
     message_filters::Synchronizer<sync_pol> sync(sync_pol(10), left_sub, right_sub);
     sync.registerCallback(boost::bind(&ImageGrabber::GrabStereo,&igb,_1,_2));
@@ -162,7 +181,8 @@ int main(int argc, char **argv)
 
     unsigned int counter = 0;
     for (const auto& path: file_paths) {
-        threads[counter++] = std::thread(slamThread, argv, path);
+        threads[counter] = std::thread(slamThread, argv, path, counter);
+        ++counter;
     }
 
     // Join all threads. 
