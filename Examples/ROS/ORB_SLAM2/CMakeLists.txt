@@ -94,7 +94,15 @@ rosbuild_add_executable(Stereo
 src/ros_stereo.cc
 )
 
+rosbuild_add_executable(StereoBag
+src/ros_stereo_bag.cc
+)
+
 target_link_libraries(Stereo
+${LIBS}
+)
+
+target_link_libraries(StereoBag
 ${LIBS}
 )
 

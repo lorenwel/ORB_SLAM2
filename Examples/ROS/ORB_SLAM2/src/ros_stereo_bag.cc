@@ -28,6 +28,9 @@
 #include<rosbag/bag.h>
 #include<rosbag/view.h>
 #include <cv_bridge/cv_bridge.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/time_synchronizer.h>
+#include <message_filters/sync_policies/approximate_time.h>
 
 #include<opencv2/core/core.hpp>
 
@@ -40,9 +43,11 @@ class ImageGrabber
 public:
     ImageGrabber(ORB_SLAM2::System* pSLAM):mpSLAM(pSLAM){}
 
-    void GrabImage(const sensor_msgs::ImageConstPtr& msg);
+    void GrabStereo(const sensor_msgs::ImageConstPtr& msgLeft,const sensor_msgs::ImageConstPtr& msgRight);
 
     ORB_SLAM2::System* mpSLAM;
+    bool do_rectify;
+    cv::Mat M1l,M2l,M1r,M2r;
 };
 
 std::vector<std::string> file_paths = {
@@ -73,13 +78,18 @@ std::vector<std::string> file_paths = {
 };
 
 void slamThread(char** argv, const std::string& path) {
-    std::vector<std::string> topics= {"/realsense_zr300/rgb/image_raw"};
+    // Declare topics for ROSbag. 
+    std::vector<std::string> topics= {"/realsense_zr300/ir/image_raw", 
+                                      "/realsense_zr300/ir2/image_raw"};
 
+    // Alter output file.
     std::string out_file = path;
     const auto str_size = out_file.length();
-    out_file[str_size - 3] = 't';
-    out_file[str_size - 2] = 'x';
-    out_file[str_size - 1] = 't';
+    out_file[str_size - 4] = '_';
+    out_file[str_size - 3] = 's';
+    out_file[str_size - 2] = 't';
+    out_file[str_size - 1] = 'e';
+    out_file.append("reo_");
     // Create SLAM system. It initializes all system threads and gets ready to process frames.
     ORB_SLAM2::System SLAM(argv[1],argv[2],ORB_SLAM2::System::MONOCULAR,false);
 
@@ -90,17 +100,30 @@ void slamThread(char** argv, const std::string& path) {
     std::cout << "Opening bag..." << std::endl;
     bag.open(path, rosbag::bagmode::Read);
 
+    // Set up synchronizer.
+    ros::NodeHandle nh(path);
+    message_filters::Subscriber<sensor_msgs::Image> left_sub(nh, topics[0], 1);
+    message_filters::Subscriber<sensor_msgs::Image> right_sub(nh, topics[1], 1);
+    typedef message_filters::sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> sync_pol;
+    message_filters::Synchronizer<sync_pol> sync(sync_pol(10), left_sub, right_sub);
+    sync.registerCallback(boost::bind(&ImageGrabber::GrabStereo,&igb,_1,_2));
+
     rosbag::View view(bag, rosbag::TopicQuery(topics));
 
     const auto begin_time = view.getBeginTime();
     const auto end_time = view.getEndTime();
     const auto bag_duration = end_time - begin_time;
 
+    // Process the bag. 
     for (const auto& msg: view) {
       std::cout << "Processing timestamp " << msg.getTime() - begin_time
                 << "/" << bag_duration << "     \r";
-      igb.GrabImage(msg.instantiate<sensor_msgs::Image>());
-      ros::WallDuration(0.2).sleep();
+      if (msg.getTopic() == topics[0]) {
+        sync.add<0>(msg.instantiate<sensor_msgs::Image>());
+      } else if (msg.getTopic() == topics[1]) {
+        sync.add<1>(msg.instantiate<sensor_msgs::Image>());
+      }
+      // ros::WallDuration(0.1).sleep();
       if (!ros::ok()) break;
     }
 
@@ -111,14 +134,16 @@ void slamThread(char** argv, const std::string& path) {
 
     // Save camera trajectory
     if (tracking_state > 1) {
-        SLAM.SaveKeyFrameTrajectoryTUM(out_file);
-        // SLAM.SaveTrajectoryTUM("FrameTrajectory.txt");
+        SLAM.SaveKeyFrameTrajectoryTUM(out_file + "keyframe.txt");
+        SLAM.SaveTrajectoryTUM(out_file + "frame.txt");
     } else {
         std::cout << "Could not initialize ORB_SLAM and reached end of bag." << std::endl;
     }
 
     bag.close();
 }
+
+
 
 int main(int argc, char **argv)
 {
@@ -139,13 +164,11 @@ int main(int argc, char **argv)
     for (const auto& path: file_paths) {
         threads[counter++] = std::thread(slamThread, argv, path);
     }
-    std::cout << "Startet all threads." << std::endl;
 
     // Join all threads. 
     for (auto&& thread: threads) {
         thread.join();
     }
-    std::cout << "Joined all threads." << std::endl;
 
 
     ros::shutdown();
@@ -153,13 +176,15 @@ int main(int argc, char **argv)
     return 0;
 }
 
-void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
+
+
+void ImageGrabber::GrabStereo(const sensor_msgs::ImageConstPtr& msgLeft,const sensor_msgs::ImageConstPtr& msgRight)
 {
     // Copy the ros image message to cv::Mat.
-    cv_bridge::CvImageConstPtr cv_ptr;
+    cv_bridge::CvImageConstPtr cv_ptrLeft;
     try
     {
-        cv_ptr = cv_bridge::toCvShare(msg);
+        cv_ptrLeft = cv_bridge::toCvShare(msgLeft);
     }
     catch (cv_bridge::Exception& e)
     {
@@ -167,7 +192,29 @@ void ImageGrabber::GrabImage(const sensor_msgs::ImageConstPtr& msg)
         return;
     }
 
-    mpSLAM->TrackMonocular(cv_ptr->image,cv_ptr->header.stamp.toSec());
+    cv_bridge::CvImageConstPtr cv_ptrRight;
+    try
+    {
+        cv_ptrRight = cv_bridge::toCvShare(msgRight);
+    }
+    catch (cv_bridge::Exception& e)
+    {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
+    }
+
+    if(do_rectify)
+    {
+        cv::Mat imLeft, imRight;
+        cv::remap(cv_ptrLeft->image,imLeft,M1l,M2l,cv::INTER_LINEAR);
+        cv::remap(cv_ptrRight->image,imRight,M1r,M2r,cv::INTER_LINEAR);
+        mpSLAM->TrackStereo(imLeft,imRight,cv_ptrLeft->header.stamp.toSec());
+    }
+    else
+    {
+        mpSLAM->TrackStereo(cv_ptrLeft->image,cv_ptrRight->image,cv_ptrLeft->header.stamp.toSec());
+    }
+
 }
 
 
