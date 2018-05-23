@@ -71,10 +71,16 @@ int main(int argc, char **argv)
     message_filters::Synchronizer<sync_pol> sync(sync_pol(10), rgb_sub,depth_sub);
     sync.registerCallback(boost::bind(&ImageGrabber::GrabRGBD,&igb,_1,_2));
 
+    std::cout << "Spinning..." << std::endl;
+
     ros::spin();
+
+    std::cout << "Shutting down threads..." << std::endl;
 
     // Stop all threads
     SLAM.Shutdown();
+
+    std::cout << "Saving trajectories..." << std::endl;
 
     // Save camera trajectory
     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");

@@ -300,21 +300,27 @@ void System::Reset()
 
 void System::Shutdown()
 {
+    std::cout << "Shutting down..." << std::endl;
     mpLocalMapper->RequestFinish();
     mpLoopCloser->RequestFinish();
+    std::cout << "Shutting down viewer..." << std::endl;
     if(mpViewer)
     {
         mpViewer->RequestFinish();
         while(!mpViewer->isFinished())
             usleep(5000);
+        delete mpViewer;
+        mpViewer = nullptr;
     }
 
+    std::cout << "Shutting down threads..." << std::endl;
     // Wait until all thread have effectively stopped
     while(!mpLocalMapper->isFinished() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA())
     {
         usleep(5000);
     }
 
+    std::cout << "Shutting down Pangolin..." << std::endl;
     if(mpViewer)
         pangolin::BindToContext("ORB-SLAM2: Map Viewer");
 }
